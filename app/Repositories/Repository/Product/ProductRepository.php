@@ -18,34 +18,57 @@ class ProductRepository implements ProductInterface
     public function showProducts($request)
     {
         try {
-            // Normalize sorts into an array
             $sortInput = $request->input('sort', []);
             $sorts     = is_array($sortInput) ? $sortInput : ($sortInput ? [$sortInput] : []);
+            $sorts     = array_values(array_filter($sorts, fn($v) => $v !== null && $v !== ''));
 
-            // remove empty values
-            $sorts = array_values(array_filter($sorts, function ($value) {
-                return $value !== null && $value !== '';
-            }));
-
-            $search = $request->input('search');
+            $search = trim((string) $request->input('search', ''));
 
             $query = Product::query();
 
-            // Search filter
-            if ($search) {
-                $query->where(function ($q) use ($search) {
-                    $q->where('title', 'like', "%{$search}%")
-                        ->orWhere('description', 'like', "%{$search}%")
-                        ->orWhere('tag', 'like', "%{$search}%");
+            if ($search !== '') {
+                $searchExact = $search;
+                $searchLike  = "%{$search}%";
+
+                // only products that match one of the fields
+                $query->where(function ($q) use ($searchLike) {
+                    $q->where('title', 'like', $searchLike)
+                        ->orWhere('description', 'like', $searchLike)
+                        ->orWhere('tag', 'like', $searchLike);
                 });
 
-                // Tag-length priority (DB-level) — keep this before price ordering
-                $searchLength = strlen($search);
-                if ($searchLength >= 5 && $searchLength <= 10) {
-                    $query->orderByRaw("CASE WHEN LENGTH(tag) BETWEEN 5 AND 10 THEN 0 ELSE 1 END");
-                } elseif ($searchLength > 10) {
-                    $query->orderByRaw("CASE WHEN LENGTH(tag) > 10 THEN 1 ELSE 0 END");
-                }
+                // 1) Primary ordering — exact title first, then title-contains, then description, then tag
+                $exactOrderSql = "
+                CASE
+                    WHEN title = ? THEN 0
+                    WHEN title LIKE ? THEN 1
+                    WHEN description = ? THEN 2
+                    WHEN description LIKE ? THEN 3
+                    WHEN tag = ? THEN 4
+                    WHEN tag LIKE ? THEN 5
+                    ELSE 6
+                END
+            ";
+                $query->orderByRaw($exactOrderSql, [
+                    $searchExact, $searchLike,
+                    $searchExact, $searchLike,
+                    $searchExact, $searchLike,
+                ]);
+
+                $longTopPrioritySql = "
+                CASE
+                    WHEN (
+                        (title LIKE ? AND (LENGTH(title) - LENGTH(REPLACE(title, ' ', '')) + 1) > 5)
+                        OR (description LIKE ? AND (LENGTH(description) - LENGTH(REPLACE(description, ' ', '')) + 1) > 5)
+                        OR (tag LIKE ? AND (LENGTH(tag) - LENGTH(REPLACE(tag, ' ', '')) + 1) > 5)
+                    ) AND isTopSeller = 1 THEN 2
+                    WHEN isTopSeller = 1 THEN 0
+                    ELSE 1
+                END
+            ";
+                $query->orderByRaw($longTopPrioritySql, [$searchLike, $searchLike, $searchLike]);
+
+                $query->orderByRaw("CASE WHEN title LIKE ? THEN 0 ELSE 1 END", [$searchLike]);
             }
 
             // Apply filter conditions (these are combinable)
@@ -58,19 +81,18 @@ class ProductRepository implements ProductInterface
             }
 
             if (in_array('orignalPrice', $sorts)) {
-                // "original price" filter: products without discount
                 $query->whereNull('discountPrice');
             }
 
-            // Apply price ordering (only one should be present)
+            // Price ordering (applied after relevance rules)
             if (in_array('lowToHigh', $sorts)) {
                 $query->orderBy('originalPrice', 'asc');
             } elseif (in_array('highToLow', $sorts)) {
                 $query->orderBy('originalPrice', 'desc');
             }
 
-            // Default ordering if nothing applied (or as fallback)
-            if (empty($sorts)) {
+            // Default ordering when no search & no sorts
+            if (empty($sorts) && $search === '') {
                 $query->orderByDesc('isTopSeller')
                     ->orderByRaw('(discountPrice > 0) DESC')
                     ->orderBy('originalPrice', 'asc');

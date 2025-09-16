@@ -1,30 +1,42 @@
 <?php
-
 namespace Database\Seeders;
 
 use App\Models\Product;
+use App\Models\Sale;
+use App\Models\User;
 use Illuminate\Database\Seeder;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 
 class ProductSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
+
     public function run(): void
     {
-        if (Product::count() < 1) {
+        // Create 5 sellers
+        $users = User::factory()->count(5)->create();
 
-             // Create 20 fake products
-            Product::factory()->count(20)->create();
+        // Create exactly 20 products (spread across random users)
+        $products = Product::factory()->count(20)->make()->each(function ($product) use ($users) {
+            $product->userId = $users->random()->id;
+            $product->save();
+        });
 
-            // Get top 10 products by totalSales
-            $topSellers = Product::orderByDesc('totalSales')->take(10)->get();
+        // Create 20 random sales
+        foreach (range(1, 20) as $i) {
+            Sale::create([
+                'userId'    => $users->random()->id,
+                'productId' => $products->random()->id,
+                'quantity'  => rand(1, 50),
+                'price'     => rand(100, 1000),
+            ]);
+        }
 
-            // Mark them as top sellers
-            foreach ($topSellers as $product) {
-                $product->update(['isTopSeller' => true]);
-            }
+        // Calculate top sellers
+        $service = new \App\Services\TopSellerService();
+        $saved   = $service->calculate(null, null, 20);
+
+        if ($this->command) {
+            $this->command->info("TopSellerService created/updated: " . count($saved));
         }
     }
+
 }

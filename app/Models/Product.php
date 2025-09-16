@@ -1,18 +1,17 @@
 <?php
-
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Product extends Model
 {
     use HasFactory, SoftDeletes;
     protected $dateFormat = 'U';
-    const CREATED_AT = 'createdAt';
-    const UPDATED_AT = 'updatedAt';
-    const DELETED_AT = 'deletedAt';
+    const CREATED_AT      = 'createdAt';
+    const UPDATED_AT      = 'updatedAt';
+    const DELETED_AT      = 'deletedAt';
 
     /**
      * The attributes that are mass assignable.
@@ -20,6 +19,7 @@ class Product extends Model
      * @var array
      */
     protected $fillable = [
+        'userId',
         'image',
         'title',
         'tag',
@@ -29,4 +29,14 @@ class Product extends Model
         'totalSales',
         'isTopSeller',
     ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function sales()
+    {
+        return $this->hasMany(Sale::class);
+    }
 }
