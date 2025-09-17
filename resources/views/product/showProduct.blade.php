@@ -63,55 +63,71 @@
 @endsection
 
 @push('scripts')
-<script>
-    function fetchProducts(page = 1) {
-        const priceSort = $('#price-sort').val();   // lowToHigh | highToLow | ''
-        const customSort = $('#custom-sort').val(); // topSell | discounted | orignalPrice | ''
+    <script>
+        function fetchProducts(page = 1) {
+            const priceSort = $('#price-sort').val(); // lowToHigh | highToLow | ''
+            const customSort = $('#custom-sort').val(); // topSell | discounted | orignalPrice | ''
 
-        // build sort[] array with only non-empty values
-        const sorts = [];
-        if (priceSort) sorts.push(priceSort);
-        if (customSort) sorts.push(customSort);
+            // build sort[] array with only non-empty values
+            const sorts = [];
+            if (priceSort) sorts.push(priceSort);
+            if (customSort) sorts.push(customSort);
 
-        const search = $('#searchProduct').val();
+            const search = $('#searchProduct').val();
 
-        $.ajax({
-            url: "{{ route('products.index') }}",
-            type: 'GET',
-            data: {
-                page: page,
-                sort: sorts,    // jQuery will send as sort[]=val1&sort[]=val2
-                search: search,
-            },
-            success: function(response) {
-                $('#product-list').html(response.products);
-                $('#pagination-wrapper').html(response.pagination);
-            },
-            error: function(xhr, status, err) {
-                console.error(xhr.responseText || err);
-                alert('Something went wrong. Check console/network tab.');
-            }
+            $.ajax({
+                url: "{{ route('products.index') }}",
+                type: 'GET',
+                data: {
+                    page: page,
+                    sort: sorts, // jQuery will send as sort[]=val1&sort[]=val2
+                    search: search,
+                },
+                success: function(response) {
+                    $('#product-list').html(response.products);
+                    $('#pagination-wrapper').html(response.pagination);
+                },
+                error: function(xhr, status, err) {
+                    console.error(xhr.responseText || err);
+                    alert('Something went wrong. Check console/network tab.');
+                }
+            });
+        }
+
+        // trigger fetch on changes
+        $(document).on('change', '#price-sort, #custom-sort', function() {
+            fetchProducts(1);
         });
-    }
 
-    // trigger fetch on changes
-    $(document).on('change', '#price-sort, #custom-sort', function() {
-        fetchProducts(1);
-    });
+        // search debounce
+        let searchTimeout;
+        $(document).on('keyup', '#searchProduct', function() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => fetchProducts(1), 400);
+        });
 
-    // search debounce
-    let searchTimeout;
-    $(document).on('keyup', '#searchProduct', function() {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => fetchProducts(1), 400);
-    });
+        // pagination links - will use current selects because fetchProducts reads them
+        $(document).on('click', '.pagination a', function(e) {
+            e.preventDefault();
+            const url = new URL($(this).attr('href'), window.location.origin);
+            const page = url.searchParams.get("page") || 1;
+            fetchProducts(page);
+        });
 
-    // pagination links - will use current selects because fetchProducts reads them
-    $(document).on('click', '.pagination a', function(e) {
-        e.preventDefault();
-        const url = new URL($(this).attr('href'), window.location.origin);
-        const page = url.searchParams.get("page") || 1;
-        fetchProducts(page);
-    });
-</script>
+        $(document).on('click', '.product-card', function() {
+            let productId = $(this).data('id');
+
+            $.ajax({
+                url: '/product/' + productId + '/detail',
+                type: 'GET',
+                success: function(response) {
+                    $('#productDetailContent').html(response);
+                    $('#productDetailModal').modal('show');
+                },
+                error: function() {
+                    alert('Something went wrong!');
+                }
+            });
+        });
+    </script>
 @endpush

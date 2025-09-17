@@ -20,6 +20,15 @@
 <body>
 
     @include('layouts.header.header')
+    <!-- Modal -->
+<div class="modal fade" id="productDetailModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content" id="productDetailContent">
+            <!-- AJAX Content Loads Here -->
+        </div>
+    </div>
+</div>
+
 
     <!-- jQuery (Full version for AJAX) -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>

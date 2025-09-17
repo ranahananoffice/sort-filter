@@ -1,6 +1,7 @@
 <?php
 namespace App\Http\Controllers;
 
+use App\Models\Product;
 use Illuminate\Http\Request;
 use App\Repositories\Interfaces\Product\ProductInterface;
 
@@ -26,6 +27,13 @@ class ProductController extends Controller
         }
 
         return view('product.showProduct', compact('allProductsPaginated'));
+    }
+
+    public function detail($id)
+    {
+        $product = Product::withAvg('reviews', 'rating')->findOrFail($id);
+
+        return view('product.partials.detail', compact('product'));
     }
 
 }
