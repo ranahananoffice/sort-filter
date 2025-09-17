@@ -1,11 +1,12 @@
 <?php
 namespace App\Repositories\Repository\Api\Product;
 
-use Exception;
-use App\Models\Product;
-use App\Enums\PriceSortEnum;
 use App\Enums\FilterSortEnum;
+use App\Enums\PriceSortEnum;
+use App\Models\Product;
 use App\Repositories\Interfaces\Api\Product\ProductsInterface;
+use Exception;
+use Illuminate\Support\Facades\DB;
 
 class ProductsRepository implements ProductsInterface
 {
@@ -64,8 +65,7 @@ class ProductsRepository implements ProductsInterface
                 $query->where('discountPrice', '>', 0);
             } elseif ($request->sortOrder === FilterSortEnum::topSell) {
                 $query->where('isTopSeller', true);
-            }
-            elseif (empty($request->sortOrder)) {
+            } elseif (empty($request->sortOrder)) {
                 $query->orderBy('originalPrice', 'asc');
             }
 
@@ -90,51 +90,55 @@ class ProductsRepository implements ProductsInterface
         try {
             $search = trim((string) $request->input('search', ''));
 
-            $query = Product::query();
+            $query = Product::query()
+                ->leftJoinSub(
+                    DB::table('reviews')
+                        ->selectRaw('productId, AVG(rating) as reviews_avg_rating')
+                        ->groupBy('productId'),
+                    'reviews_avg',
+                    'products.id',
+                    '=',
+                    'reviews_avg.productId'
+                );
 
             if ($search !== '') {
-                $searchExact = $search;
-                $searchLike  = "%{$search}%";
+                $searchLike = "%{$search}%";
 
-                // only products that match one of the fields
                 $query->where(function ($q) use ($searchLike) {
                     $q->where('title', 'like', $searchLike)
                         ->orWhere('description', 'like', $searchLike)
                         ->orWhere('tag', 'like', $searchLike);
                 });
 
-                // 1) Primary ordering — exact title first, then title-contains, then description, then tag
-                $exactOrderSql = "
-                CASE
-                    WHEN title = ? THEN 0
-                    WHEN title LIKE ? THEN 1
-                    WHEN description = ? THEN 2
-                    WHEN description LIKE ? THEN 3
-                    WHEN tag = ? THEN 4
-                    WHEN tag LIKE ? THEN 5
-                    ELSE 6
-                END
-            ";
-                $query->orderByRaw($exactOrderSql, [
-                    $searchExact, $searchLike,
-                    $searchExact, $searchLike,
-                    $searchExact, $searchLike,
-                ]);
+                // Count keyword occurrences
+                $relevanceSql = "
+                                (
+                                 (LENGTH(title) - LENGTH(REPLACE(LOWER(title), LOWER(?), ''))) / LENGTH(?)
+                                 + (LENGTH(description) - LENGTH(REPLACE(LOWER(description), LOWER(?), ''))) / LENGTH(?)
+                                 + (LENGTH(tag) - LENGTH(REPLACE(LOWER(tag), LOWER(?), ''))) / LENGTH(?)
+                                )
+                            ";
 
-                $longTopPrioritySql = "
-                CASE
-                    WHEN (
-                        (title LIKE ? AND (LENGTH(title) - LENGTH(REPLACE(title, ' ', '')) + 1) > 5)
-                        OR (description LIKE ? AND (LENGTH(description) - LENGTH(REPLACE(description, ' ', '')) + 1) > 5)
-                        OR (tag LIKE ? AND (LENGTH(tag) - LENGTH(REPLACE(tag, ' ', '')) + 1) > 5)
-                    ) AND isTopSeller = 1 THEN 2
-                    WHEN isTopSeller = 1 THEN 0
-                    ELSE 1
-                END
-            ";
-                $query->orderByRaw($longTopPrioritySql, [$searchLike, $searchLike, $searchLike]);
-
-                $query->orderByRaw("CASE WHEN title LIKE ? THEN 0 ELSE 1 END", [$searchLike]);
+                $query->select('products.*') // keep reviews_avg_rating intact
+                    ->addSelect('reviews_avg_rating')
+                    ->selectRaw("$relevanceSql as relevance_score", [
+                        $search, $search,
+                        $search, $search,
+                        $search, $search,
+                    ])
+                    ->orderByRaw("
+              CASE
+                  WHEN isTopSeller = 1
+                       AND relevance_score BETWEEN 5 AND 10
+                       AND reviews_avg_rating > 0
+                  THEN 0
+                  WHEN relevance_score > 10
+                  THEN 2
+                  ELSE 1
+              END
+          ")
+                    ->orderByDesc('reviews_avg_rating')
+                    ->orderByDesc('relevance_score');
             }
 
             $products = $query->get();
